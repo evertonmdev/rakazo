@@ -489,6 +489,8 @@ model Bot {
   thinkingLevel     String?
   disabledBuiltinTools String[] @default([])
   ultrafastEnabled       Boolean  @default(false)
+  ultrafastTypesafeSecretId   String?
+  ultrafastTextModelSecretId  String?
   webhookSecretId   String?
   teamChatAmbientEnabled Boolean @default(false)
   teamChatRules          String  @default("")

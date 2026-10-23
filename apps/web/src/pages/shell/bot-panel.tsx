@@ -286,8 +286,26 @@ export function BotSettings({
   const [autoSpeak, setAutoSpeak] = useState(bot.autoSpeak);
   const [fleetManagement, setFleetManagement] = useState(bot.fleetManagement);
   const [ultrafastEnabled, setUltrafastEnabled] = useState(bot.ultrafastEnabled ?? false);
+  const [typesafeConfigured, setTypesafeConfigured] = useState(false);
+  const [textModelConfigured, setTextModelConfigured] = useState(false);
+  const [typesafeApiKey, setTypesafeApiKey] = useState("");
+  const [textModelApiKey, setTextModelApiKey] = useState("");
   useEffect(() => setFleetManagement(bot.fleetManagement), [bot.fleetManagement]);
   useEffect(() => setUltrafastEnabled(bot.ultrafastEnabled ?? false), [bot.ultrafastEnabled]);
+  useEffect(() => {
+    let cancelled = false;
+    void rpc.bots.ultrafastCredentials
+      .get({ botId: bot.id })
+      .then((status) => {
+        if (cancelled) return;
+        setTypesafeConfigured(status.typesafeConfigured);
+        setTextModelConfigured(status.textModelConfigured);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [bot.id]);
   const [voiceId, setVoiceId] = useState(bot.voiceId ?? "");
   const [voices, setVoices] = useState<VoiceInfo[]>([]);
   const [modelKey, setModelKey] = useState(
@@ -847,6 +865,52 @@ export function BotSettings({
                   }}
                 />
               </div>
+              <label className="mt-4 block text-xs text-muted-foreground" htmlFor={`${ids}-typesafe-key`}>
+                TypeSafe API key
+                <Input
+                  id={`${ids}-typesafe-key`}
+                  type="password"
+                  autoComplete="off"
+                  value={typesafeApiKey}
+                  placeholder={typesafeConfigured ? "salva" : "cole a chave"}
+                  onChange={(event) => setTypesafeApiKey(event.target.value)}
+                  className="mt-1"
+                />
+              </label>
+              <label className="mt-3 block text-xs text-muted-foreground" htmlFor={`${ids}-mercury-key`}>
+                Mercury API key
+                <Input
+                  id={`${ids}-mercury-key`}
+                  type="password"
+                  autoComplete="off"
+                  value={textModelApiKey}
+                  placeholder={textModelConfigured ? "salva" : "OpenRouter"}
+                  onChange={(event) => setTextModelApiKey(event.target.value)}
+                  className="mt-1"
+                />
+              </label>
+              <Button
+                type="button"
+                className="mt-3"
+                disabled={saving || (!typesafeApiKey && !textModelApiKey)}
+                onClick={() => {
+                  void rpc.bots.ultrafastCredentials
+                    .save({
+                      botId: bot.id,
+                      ...(typesafeApiKey ? { typesafeApiKey } : {}),
+                      ...(textModelApiKey ? { textModelApiKey } : {}),
+                    })
+                    .then(() => {
+                      if (typesafeApiKey) setTypesafeConfigured(true);
+                      if (textModelApiKey) setTextModelConfigured(true);
+                      setTypesafeApiKey("");
+                      setTextModelApiKey("");
+                    })
+                    .catch(() => setError("Não consegui salvar as chaves."));
+                }}
+              >
+                Salvar chaves
+              </Button>
             </SettingsGroup>
             <SettingsGroup label={t`Description`}>
               <label htmlFor={`${ids}-description`} className="block text-xs text-muted-foreground">

@@ -143,6 +143,8 @@ import {
   verifyCatalogProviderApiKey,
   verifyMcpInstall,
   verifyOpenAiCompatibleApiKey,
+  saveUltrafastCredentials,
+  ultrafastCredentialStatus,
 } from "@rakazo/adapters";
 import type { Auth } from "@rakazo/auth";
 import type {
@@ -2284,6 +2286,41 @@ export function createRouter(deps: RouterDeps) {
           webhookConfigured: true as const,
         };
       }),
+      ultrafastCredentials: {
+        get: authed.bots.ultrafastCredentials.get.handler(async ({ context, input }) => {
+          const status = await ultrafastCredentialStatus(deps.prisma, {
+            userId: context.actor.userId,
+            spaceId: context.actor.spaceId,
+            botId: input.botId,
+          });
+          if (!status) throw new IsolationError();
+          return status;
+        }),
+        save: authed.bots.ultrafastCredentials.save.handler(async ({ context, input }) => {
+          const found = await deps.prisma.bot.findFirst({
+            where: {
+              id: input.botId,
+              userId: context.actor.userId,
+              spaceId: context.actor.spaceId,
+            },
+            select: { id: true },
+          });
+          if (!found) throw new IsolationError();
+          await saveUltrafastCredentials(
+            deps.prisma,
+            deps.secrets,
+            {
+              operationId: "bots.ultrafastCredentials.save",
+              traceId: "bots.ultrafastCredentials.save",
+              spaceId: context.actor.spaceId,
+              userId: context.actor.userId,
+              signal: context.signal ?? new AbortController().signal,
+            },
+            input,
+          );
+          return { ok: true as const };
+        }),
+      },
     },
     groups: {
       create: authed.groups.create.handler(async ({ context, input }) => {

@@ -4,7 +4,7 @@ Default page tools (`browser_navigate`, `browser_snapshot`, `browser_act`) stay 
 
 In bot settings, **Ativar ultrafast** replaces those tools with `browser_ultrafast`. That runner attaches to the Chromium already on the computer screen, brings the tab forward, and runs [Jev Ultrafast](https://github.com/browser-use/jev-ultrafast). Text fields use `inception/mercury-3` on OpenRouter. TypeSafe still chooses the operation and the target.
 
-Set these on the API process. They are forwarded into the computer only for that tool call:
+Set these in the bot's Browser settings. They are encrypted and are not returned by the API. Environment variables still work as a fallback:
 
 - `TYPESAFE_API_KEY`
 - `TEXT_MODEL_API_KEY`

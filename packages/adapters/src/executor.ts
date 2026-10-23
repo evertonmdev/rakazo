@@ -221,6 +221,7 @@ import {
   browserSnapshotFromTool,
 } from "./browser-tools.js";
 import { agentConnectionTools, builtinAgentTools, sharedMemorySaveError } from "./builtin-tools.js";
+import { loadUltrafastCredentials } from "./ultrafast-credentials.js";
 import { requestUserCall } from "./call-request.js";
 import { archiveSpawnedBot, spawnBot } from "./child-bots.js";
 import type { CloudAgentConnection } from "./cloud-agent-factory.js";
@@ -6184,6 +6185,7 @@ export function createRunExecutor(deps: ExecutorDeps) {
             const url = typeof args.url === "string" ? args.url : "";
             const goal = typeof args.goal === "string" ? args.goal : "";
             const computer = await getRunComputer("tool", name);
+            const saved = await loadUltrafastCredentials(deps.prisma, deps.secretStore, run.botId);
             let stdout = "";
             let stderr = "";
             let code = 1;
@@ -6197,11 +6199,16 @@ export function createRunExecutor(deps: ExecutorDeps) {
                   TEXT_MODEL_BASE_URL:
                     process.env.TEXT_MODEL_BASE_URL || "https://openrouter.ai/api/v1",
                   TEXT_MODEL_REASONING: process.env.TEXT_MODEL_REASONING || "none",
-                  ...(process.env.TYPESAFE_API_KEY
-                    ? { TYPESAFE_API_KEY: process.env.TYPESAFE_API_KEY }
+                  ...(saved.typesafeApiKey || process.env.TYPESAFE_API_KEY
+                    ? {
+                        TYPESAFE_API_KEY: saved.typesafeApiKey || process.env.TYPESAFE_API_KEY || "",
+                      }
                     : {}),
-                  ...(process.env.TEXT_MODEL_API_KEY
-                    ? { TEXT_MODEL_API_KEY: process.env.TEXT_MODEL_API_KEY }
+                  ...(saved.textModelApiKey || process.env.TEXT_MODEL_API_KEY
+                    ? {
+                        TEXT_MODEL_API_KEY:
+                          saved.textModelApiKey || process.env.TEXT_MODEL_API_KEY || "",
+                      }
                     : {}),
                   ...(process.env.TYPESAFE_MODEL
                     ? { TYPESAFE_MODEL: process.env.TYPESAFE_MODEL }

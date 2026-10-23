@@ -109,6 +109,10 @@ import {
   IntegrationProviderConfigSchema,
   IntegrationSetupStateSchema,
 } from "./integration-settings.js";
+import {
+  SaveUltrafastCredentialsInput,
+  UltrafastCredentialsStatus,
+} from "./ultrafast-credentials.js";
 import { ModelHeadersSchema } from "./model-headers.js";
 import { MessageReactionSchema } from "./reactions.js";
 import { RoutineWatchSchema } from "./routine-watch.js";
@@ -355,6 +359,10 @@ export const appContract = {
         webhookConfigured: z.literal(true),
       }),
     ),
+    ultrafastCredentials: {
+      get: oc.input(botId).output(UltrafastCredentialsStatus),
+      save: oc.input(SaveUltrafastCredentialsInput).output(z.object({ ok: z.literal(true) })),
+    },
   },
   groups: {
     create: oc.input(CreateGroupInput).output(GroupSchema),
