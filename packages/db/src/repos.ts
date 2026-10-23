@@ -138,6 +138,7 @@ function mapBot(
     teamChatRules: bot.teamChatRules ?? "",
     fleetManagement: bot.fleetManagement ?? false,
     disabledBuiltinTools: bot.disabledBuiltinTools ?? [],
+    ultrafastEnabled: bot.ultrafastEnabled ?? false,
     webhookConfigured: Boolean(bot.webhookSecretId),
     spawnKey: bot.spawnKey ?? null,
     incomingCall,

@@ -1,0 +1,187 @@
+#!/usr/bin/env python3
+"""Drive the visible computer Chrome with Jev Ultrafast.
+
+Default Rakazo page tools stay in place. This runner is used only when the
+bot setting "Ativar ultrafast" is on. It attaches to the Chromium already on
+DISPLAY (the computer-use screen), activates that tab, and runs the Jev loop.
+Text fields use Mercury. TypeSafe still chooses the operation and target.
+"""
+
+from __future__ import annotations
+
+import importlib.machinery
+import importlib.util
+import json
+import os
+import sys
+from pathlib import Path
+
+VENDOR = Path("/usr/local/lib/rakazo-ultrafast")
+if not VENDOR.is_dir():
+    VENDOR = Path(__file__).with_name("vendor")
+if VENDOR.is_dir():
+    sys.path.insert(0, str(VENDOR))
+
+os.environ.setdefault("TEXT_MODEL", "inception/mercury-2.5")
+os.environ.setdefault("TEXT_MODEL_BASE_URL", "https://openrouter.ai/api/v1")
+os.environ.setdefault("TEXT_MODEL_REASONING", "none")
+
+
+def load_page_browser():
+    path = Path("/usr/local/bin/rakazo-page-browser")
+    if not path.is_file():
+        path = Path(__file__).with_name("rakazo-page-browser")
+    loader = importlib.machinery.SourceFileLoader("rakazo_page_browser", str(path))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("rakazo-page-browser is not installed on this computer")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class VisibleBrowser:
+    """Jev browser bound to the tab the user already sees."""
+
+    def __init__(self, url: str):
+        page = load_page_browser()
+        self._page = page
+        port = page.cdp_port()
+        page.wait_for_cdp(port, timeout_s=8)
+        self.client = page.CdpClient(page.discover_ws_url(port))
+        self.client.connect()
+        self.session = page.attach_page(self.client)
+        self._install_cdp()
+        targets = self.client.call("Target.getTargets").get("targetInfos") or []
+        for target in targets:
+            if not isinstance(target, dict) or target.get("type") != "page":
+                continue
+            attached = self.client.call(
+                "Target.attachToTarget",
+                {"targetId": target["targetId"], "flatten": True},
+            )
+            if attached.get("sessionId") == self.session:
+                self.client.call("Target.activateTarget", {"targetId": target["targetId"]})
+                break
+        self.call("Page.navigate", url=url)
+        self.after_input = None
+        self.target = "visible"
+
+    def _install_cdp(self):
+        client = self.client
+
+        def cdp(method, session_id=None, **params):
+            if params:
+                return client.call(method, params, session_id=session_id)
+            return client.call(method, session_id=session_id)
+
+        import jev_ultrafast.browser as browser
+
+        browser.cdp = cdp
+
+    def call(self, method, **params):
+        return self.client.call(method, params, session_id=self.session)
+
+    def evaluate(self, expression):
+        import jev_ultrafast.browser as browser
+
+        return browser.browser_operation(
+            {"operation": "observe", "session": self.session, "screenshot": False}
+        ) and self._eval(expression)
+
+    def _eval(self, expression):
+        result = self.call("Runtime.evaluate", expression=expression, returnByValue=True)
+        if result.get("exceptionDetails"):
+            from jev_ultrafast.browser import StalePage
+
+            raise StalePage("Document changed during evaluation")
+        return result.get("result", {}).get("value")
+
+    def observe(self, screenshot=True):
+        import jev_ultrafast.browser as browser
+
+        return browser.browser_operation(
+            {"operation": "observe", "session": self.session, "screenshot": screenshot}
+        )
+
+    def fresh(self, page, action=None):
+        from jev_ultrafast.browser import MARKER
+
+        if action is not None and action["kind"] in {"click", "select"}:
+            node = action["node"]
+            current = self._eval(
+                "(() => { const c=window.__jevFast; "
+                f"return c ? [c.pageKey(),c.guard(c.nodes.get({int(node)}))] : null; }})()"
+            )
+            return current == [page["page_key"], page["guards"].get(str(node))]
+        return self._eval(MARKER) == page["marker"]
+
+    def act(self, action, page, text=None):
+        import jev_ultrafast.browser as browser
+
+        if not self.fresh(page, action):
+            raise browser.StalePage("Page changed since this decision. Observe again.")
+        result = browser.browser_operation(
+            {"operation": "act", "session": self.session, "action": action, "text": text}
+        )
+        self.after_input = action if action["kind"] != "wait" else None
+        return result
+
+    def close(self):
+        self.client.close()
+        self.target = None
+
+
+def main() -> int:
+    raw = sys.stdin.read() if not sys.argv[1:] else sys.argv[1]
+    try:
+        args = json.loads(raw or "{}")
+    except json.JSONDecodeError as exc:
+        print(json.dumps({"ok": False, "error": f"invalid json: {exc}"}))
+        return 2
+    url = str(args.get("url") or "").strip()
+    goal = str(args.get("goal") or "").strip()
+    if not url.startswith(("http://", "https://")) or not goal:
+        print(json.dumps({"ok": False, "error": "url (http/https) and goal are required"}))
+        return 2
+    if not os.environ.get("TYPESAFE_API_KEY") or not os.environ.get("TEXT_MODEL_API_KEY"):
+        print(
+            json.dumps(
+                {
+                    "ok": False,
+                    "error": "Set TYPESAFE_API_KEY and TEXT_MODEL_API_KEY on the API. Text model defaults to inception/mercury-2.5.",
+                }
+            )
+        )
+        return 2
+    import jev_ultrafast.agent as agent_mod
+
+    agent_mod.Browser = VisibleBrowser
+    agent = agent_mod.Agent(url, goal, screenshots=False)
+    last = agent.snapshot()
+    try:
+        for _ in range(40):
+            last = agent.command("tick")
+            if last.get("status") in {"done", "blocked"}:
+                break
+    finally:
+        browser = agent.state.get("browser")
+        if browser:
+            browser.close()
+    print(
+        json.dumps(
+            {
+                "ok": last.get("status") == "done",
+                "status": last.get("status"),
+                "url": (last.get("page") or {}).get("url"),
+                "title": (last.get("page") or {}).get("title"),
+                "model": os.environ.get("TEXT_MODEL"),
+                "steps": len(last.get("history") or []),
+            }
+        )
+    )
+    return 0 if last.get("status") == "done" else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

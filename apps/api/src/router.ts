@@ -2085,6 +2085,9 @@ export function createRouter(deps: RouterDeps) {
             ...(input.disabledBuiltinTools !== undefined
               ? { disabledBuiltinTools: input.disabledBuiltinTools }
               : {}),
+            ...(input.ultrafastEnabled !== undefined
+              ? { ultrafastEnabled: input.ultrafastEnabled }
+              : {}),
           },
         }).catch((error) => {
           if (!(error instanceof InstructionConflictError)) throw error;

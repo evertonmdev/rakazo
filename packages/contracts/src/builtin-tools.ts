@@ -22,6 +22,7 @@ export const BUILTIN_TOOL_NAMES = [
   "browser_navigate",
   "browser_snapshot",
   "browser_act",
+  "browser_ultrafast",
   "list_files",
   "read_file",
   "write_file",

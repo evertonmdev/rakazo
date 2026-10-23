@@ -241,6 +241,7 @@ export function BotSettings({
     memoryScope?: "isolated" | "shared" | null;
     autoSpeak?: boolean;
     fleetManagement?: boolean;
+    ultrafastEnabled?: boolean;
     voiceId?: string | null;
     modelProvider?: string | null;
     modelId?: string | null;
@@ -284,7 +285,9 @@ export function BotSettings({
   const [memoryScope, setMemoryScope] = useState(bot.memoryScope);
   const [autoSpeak, setAutoSpeak] = useState(bot.autoSpeak);
   const [fleetManagement, setFleetManagement] = useState(bot.fleetManagement);
+  const [ultrafastEnabled, setUltrafastEnabled] = useState(bot.ultrafastEnabled ?? false);
   useEffect(() => setFleetManagement(bot.fleetManagement), [bot.fleetManagement]);
+  useEffect(() => setUltrafastEnabled(bot.ultrafastEnabled ?? false), [bot.ultrafastEnabled]);
   const [voiceId, setVoiceId] = useState(bot.voiceId ?? "");
   const [voices, setVoices] = useState<VoiceInfo[]>([]);
   const [modelKey, setModelKey] = useState(
@@ -345,6 +348,7 @@ export function BotSettings({
         color?: string;
         notifyOnFinish?: boolean;
         fleetManagement?: boolean;
+        ultrafastEnabled?: boolean;
         disabledBuiltinTools?: string[];
         baseDisabledBuiltinTools?: string[];
       },
@@ -416,6 +420,7 @@ export function BotSettings({
       color?: string;
       notifyOnFinish?: boolean;
       fleetManagement?: boolean;
+      ultrafastEnabled?: boolean;
       disabledBuiltinTools?: string[];
       baseDisabledBuiltinTools?: string[];
     },
@@ -426,6 +431,10 @@ export function BotSettings({
       setError(null);
       if (patchOverrides?.fleetManagement !== undefined) {
         await onSave({ fleetManagement: patchOverrides.fleetManagement });
+        return;
+      }
+      if (patchOverrides?.ultrafastEnabled !== undefined) {
+        await onSave({ ultrafastEnabled: patchOverrides.ultrafastEnabled });
         return;
       }
       const selected = selectedModel;
@@ -549,6 +558,7 @@ export function BotSettings({
     color?: string;
     notifyOnFinish?: boolean;
     fleetManagement?: boolean;
+    ultrafastEnabled?: boolean;
     disabledBuiltinTools?: string[];
   }) {
     // Serialize full-object auto-saves so an older in-flight request cannot
@@ -810,6 +820,30 @@ export function BotSettings({
                   onCheckedChange={(checked) => {
                     setFleetManagement(checked);
                     void enqueueSave({ fleetManagement: checked });
+                  }}
+                />
+              </div>
+            </SettingsGroup>
+            <SettingsGroup label={t`Browser`}>
+              <div className="flex min-h-11 items-center justify-between gap-3">
+                <div>
+                  <label htmlFor={`${ids}-ultrafast`} className="text-sm">
+                    Ativar ultrafast
+                  </label>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    <Trans>
+                      Off keeps the default page browser. On drives the visible computer Chrome with
+                      Jev Ultrafast and Mercury.
+                    </Trans>
+                  </p>
+                </div>
+                <Switch
+                  id={`${ids}-ultrafast`}
+                  checked={ultrafastEnabled}
+                  disabled={saving}
+                  onCheckedChange={(checked) => {
+                    setUltrafastEnabled(checked);
+                    void enqueueSave({ ultrafastEnabled: checked });
                   }}
                 />
               </div>

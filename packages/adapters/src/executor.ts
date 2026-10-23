@@ -4282,6 +4282,7 @@ export function createRunExecutor(deps: ExecutorDeps) {
             historyRetrievalEnabled: contextStrategy !== "current",
             graphicalToolsAllowed,
             pageBrowserAllowed,
+            ultrafastEnabled: Boolean(bot.ultrafastEnabled),
             groupId: thread.groupId,
             trigger: run.trigger,
             semanticMemoryEnabled,
@@ -6172,6 +6173,54 @@ export function createRunExecutor(deps: ExecutorDeps) {
           }
           if (name === "web_fetch") {
             return finish(await webFetchFromTool(web, context, args));
+          }
+          if (name === "browser_ultrafast") {
+            if (!bot.ultrafastEnabled) {
+              return finish({ error: "Ultrafast is off. Use the page browser tools." });
+            }
+            if (heldForTakeover) {
+              return finish({ error: DESKTOP_HELD_FOR_TAKEOVER_MESSAGE });
+            }
+            const url = typeof args.url === "string" ? args.url : "";
+            const goal = typeof args.goal === "string" ? args.goal : "";
+            const computer = await getRunComputer("tool", name);
+            let stdout = "";
+            let stderr = "";
+            let code = 1;
+            for await (const event of deps.sandbox.execute(
+              computer,
+              {
+                argv: ["/usr/local/bin/rakazo-ultrafast", JSON.stringify({ url, goal })],
+                timeoutMs: 180_000,
+                env: {
+                  TEXT_MODEL: process.env.TEXT_MODEL || "inception/mercury-2.5",
+                  TEXT_MODEL_BASE_URL:
+                    process.env.TEXT_MODEL_BASE_URL || "https://openrouter.ai/api/v1",
+                  TEXT_MODEL_REASONING: process.env.TEXT_MODEL_REASONING || "none",
+                  ...(process.env.TYPESAFE_API_KEY
+                    ? { TYPESAFE_API_KEY: process.env.TYPESAFE_API_KEY }
+                    : {}),
+                  ...(process.env.TEXT_MODEL_API_KEY
+                    ? { TEXT_MODEL_API_KEY: process.env.TEXT_MODEL_API_KEY }
+                    : {}),
+                  ...(process.env.TYPESAFE_MODEL
+                    ? { TYPESAFE_MODEL: process.env.TYPESAFE_MODEL }
+                    : {}),
+                },
+              },
+              context,
+            )) {
+              if (event.type === "stdout") stdout += event.data;
+              if (event.type === "stderr") stderr += event.data;
+              if (event.type === "exit") code = event.code;
+            }
+            workspaceCheckpoint.markDirty();
+            return finish({
+              ok: code === 0,
+              stdout: stdout.slice(-4000),
+              stderr: stderr.slice(-1000),
+              code,
+            });
           }
           if (PAGE_BROWSER_TOOL_NAMES.has(name)) {
             if (heldForTakeover) {
@@ -8975,6 +9024,8 @@ export function selectBuiltinToolsForRun(options: {
   graphicalToolsAllowed: boolean;
   /** Page browser tools need a graphical computer (Chrome), not model vision. */
   pageBrowserAllowed?: boolean;
+  /** Replace page tools with Jev Ultrafast on the visible computer browser. */
+  ultrafastEnabled?: boolean;
   groupId: string | null;
   trigger: string;
   semanticMemoryEnabled: boolean;
@@ -8999,9 +9050,14 @@ export function selectBuiltinToolsForRun(options: {
     selectMemoryTools(
       filterBuiltinToolsForRun(
         filterBuiltinToolsForThread(
-          filterPageBrowserTools(
-            filterImageReturningComputerTools(builtinAgentTools, options.graphicalToolsAllowed),
-            options.pageBrowserAllowed ?? options.graphicalToolsAllowed,
+          filterUltrafastBrowserTools(
+            filterPageBrowserTools(
+              filterImageReturningComputerTools(builtinAgentTools, options.graphicalToolsAllowed),
+              options.ultrafastEnabled
+                ? false
+                : (options.pageBrowserAllowed ?? options.graphicalToolsAllowed),
+            ),
+            Boolean(options.ultrafastEnabled),
           ),
           options.groupId,
         ),
@@ -9066,6 +9122,17 @@ export function filterPageBrowserTools<T extends { name: string }>(
 ): T[] {
   if (pageBrowserAllowed) return tools;
   return tools.filter((tool) => !PAGE_BROWSER_TOOL_NAMES.has(tool.name));
+}
+
+/** Ultrafast replaces the default page tools. Off keeps the default browser path. */
+export function filterUltrafastBrowserTools<T extends { name: string }>(
+  tools: T[],
+  ultrafastEnabled: boolean,
+): T[] {
+  if (!ultrafastEnabled) return tools.filter((tool) => tool.name !== "browser_ultrafast");
+  return tools.filter(
+    (tool) => tool.name === "browser_ultrafast" || !PAGE_BROWSER_TOOL_NAMES.has(tool.name),
+  );
 }
 
 const GRAPHICAL_COMPUTER_INSTRUCTION =

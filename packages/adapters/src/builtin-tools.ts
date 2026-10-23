@@ -343,6 +343,19 @@ export const builtinAgentTools: ConnectorTool[] = [
     },
   },
   {
+    name: "browser_ultrafast",
+    description:
+      "Drive the visible computer browser with Jev Ultrafast and Mercury. Use this for every page task when it is offered. Do not use browser_navigate, browser_snapshot, or browser_act. Pass the http(s) URL and the full goal. Actions happen in the Chromium tab already on this bot's screen.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        url: { type: "string", description: "http(s) URL to open in the visible tab." },
+        goal: { type: "string", description: "What to accomplish on that page." },
+      },
+      required: ["url", "goal"],
+    },
+  },
+  {
     name: "list_files",
     description:
       "List files and directories in this bot's home. On a Team Computer, relative paths use the bot folder; use shared/... for shared work or bots/... to inspect the Team root.",
