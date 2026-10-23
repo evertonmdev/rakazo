@@ -136,7 +136,9 @@ RUN ldconfig \
 # Agent-authored scripts often use the unversioned name. Keep it on the installed Python 3.
 RUN ln -s /usr/bin/python3 /usr/local/bin/python \
   && python -c 'import sys; assert sys.version_info.major == 3' \
-  && pip3 install --no-cache-dir --break-system-packages httpx==0.28.1
+  && pip3 install --no-cache-dir --break-system-packages \
+    'httpx[http2]==0.28.1' \
+    browser-harness==0.1.13
 EXPOSE 7070 6080 6081 6082 6083 6084 6085 6086 6087 6088 6089 6090 6091 6092 6093 6094 6095
 # Docker exec does not inherit PID 1's exports, so every process gets the same
 # identity lookup. Startup creates these private files for the effective UID/GID.
