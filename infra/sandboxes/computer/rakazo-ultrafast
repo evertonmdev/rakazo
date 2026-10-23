@@ -53,6 +53,12 @@ class VisibleBrowser:
         self.client.connect()
         self.session = page.attach_page(self.client)
         self._install_cdp()
+        self._activate_visible_tab()
+        self.after_input = None
+        self.target = "visible"
+        self._navigate_and_wait(url)
+
+    def _activate_visible_tab(self) -> None:
         targets = self.client.call("Target.getTargets").get("targetInfos") or []
         for target in targets:
             if not isinstance(target, dict) or target.get("type") != "page":
@@ -64,25 +70,51 @@ class VisibleBrowser:
             if attached.get("sessionId") == self.session:
                 self.client.call("Target.activateTarget", {"targetId": target["targetId"]})
                 break
-        self.call("Page.navigate", url=url)
-        self.after_input = None
-        self.target = "visible"
-        self._wait_for_document()
 
-    def _wait_for_document(self, timeout_s: float = 15) -> None:
-        """snapshot.js returns null until document.body exists. Jev treats that as navigating."""
+    def _navigate_and_wait(self, url: str, timeout_s: float = 15) -> None:
+        """Wait for the navigation we started, not the page that was already complete."""
+        self.call("Page.enable")
+        self.call("Page.setLifecycleEventsEnabled", enabled=True)
+        frame = self.call("Page.getFrameTree")["frameTree"]["frame"]
+        frame_id = frame["id"]
+        previous = frame.get("loaderId")
+        nav = self.call("Page.navigate", url=url)
+        if nav.get("errorText"):
+            raise RuntimeError(f"navigation failed: {nav['errorText']}")
+        started = nav.get("loaderId") or ""
+        frame_id = nav.get("frameId") or frame_id
+        if not started:
+            self._wait_until_ready(timeout_s)
+            return
         deadline = time.monotonic() + timeout_s
         while time.monotonic() < deadline:
-            try:
-                ready = self._eval("document.readyState") == "complete" and self._eval(
-                    "document.body != null"
-                )
-            except Exception:
-                ready = False
-            if ready:
+            self.call("Runtime.evaluate", expression="1", returnByValue=True)
+            current, reached = self.client._lifecycle.get((self.session, frame_id), (None, set()))
+            if (
+                current
+                and current != previous
+                and "load" in reached
+                and self._document_ready()
+            ):
                 return
             time.sleep(0.05)
         raise TimeoutError("page did not finish loading")
+
+    def _wait_until_ready(self, timeout_s: float) -> None:
+        deadline = time.monotonic() + timeout_s
+        while time.monotonic() < deadline:
+            if self._document_ready():
+                return
+            time.sleep(0.05)
+        raise TimeoutError("page did not finish loading")
+
+    def _document_ready(self) -> bool:
+        try:
+            return self._eval("document.readyState") == "complete" and bool(
+                self._eval("document.body != null")
+            )
+        except Exception:
+            return False
 
     def _install_cdp(self):
         client = self.client
@@ -113,7 +145,7 @@ class VisibleBrowser:
     def observe(self, screenshot=True):
         import jev_ultrafast.browser as browser
 
-        deadline = time.monotonic() + 8
+        deadline = time.monotonic() + 15
         last = None
         while time.monotonic() < deadline:
             try:
