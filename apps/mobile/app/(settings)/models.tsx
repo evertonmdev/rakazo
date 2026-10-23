@@ -9,10 +9,11 @@ import type {
 import {
   backupChoiceKey,
   CLOUDFLARE_AI_GATEWAY_PROVIDER_ID,
-  cloudflareGatewayRouting,
+  cloudflareModelRouting,
   connectedBackupOptions,
   DEFAULT_MODEL_CONTEXT_WINDOW,
   DEFAULT_MODEL_MAX_TOKENS,
+  isCloudflareModelProvider,
   MAX_MODEL_BACKUPS,
   MAX_MODEL_CONTEXT_WINDOW,
   MAX_MODEL_MAX_TOKENS,
@@ -456,8 +457,9 @@ export default function Models() {
   const selectedChoice = selectedSection?.data[0];
   const isOpenAiCompatible = provider === OPENAI_COMPATIBLE_PROVIDER_ID;
   const isCloudflareGateway = provider === CLOUDFLARE_AI_GATEWAY_PROVIDER_ID;
+  const isCloudflare = isCloudflareModelProvider(provider);
   const cloudflareRoutingReady =
-    !isCloudflareGateway || cloudflareGatewayRouting({ accountId, gatewayId }) !== undefined;
+    !isCloudflare || cloudflareModelRouting({ provider, accountId, gatewayId }) !== undefined;
   const credential = credentials.find((entry) => entry.provider === provider);
   const currentEntry = catalog.find(
     (entry) => entry.provider === me?.defaultProvider && entry.id === me?.defaultModel,
@@ -510,7 +512,7 @@ export default function Models() {
   const gatewayDirty =
     accountId.trim() !== (credential?.accountId ?? "") ||
     gatewayId.trim() !== (credential?.gatewayId ?? "");
-  const gatewayOnlySave = isCloudflareGateway && Boolean(credential) && !apiKey.trim();
+  const gatewayOnlySave = isCloudflare && Boolean(credential) && !apiKey.trim();
 
   function updateBaseUrl(nextBaseUrl: string) {
     setBaseUrl(nextBaseUrl);
@@ -758,9 +760,7 @@ export default function Models() {
           : {
               provider: selected.provider,
               ...(!savingLimitOnly ? { apiKey: apiKey.trim() } : {}),
-              ...(provider === CLOUDFLARE_AI_GATEWAY_PROVIDER_ID
-                ? { accountId: accountId.trim(), gatewayId: gatewayId.trim() }
-                : {}),
+              ...(isCloudflare ? { accountId: accountId.trim(), gatewayId: gatewayId.trim() } : {}),
               modelId: selected.id,
               // A limits-only save leaves the stored effort alone while the model
               // stays put. Changing the model sends the clamped level, including
@@ -1477,9 +1477,9 @@ export default function Models() {
             />
           )
         ) : null}
-        {acceptsKey || isCloudflareGateway ? (
+        {acceptsKey || isCloudflare ? (
           <View style={styles.keySection}>
-            {isCloudflareGateway ? (
+            {isCloudflare ? (
               <>
                 <Text style={styles.sectionTitle}>{t("Account ID")}</Text>
                 <TextInput
@@ -1495,20 +1495,24 @@ export default function Models() {
                   style={styles.keyInput}
                   value={accountId}
                 />
-                <Text style={styles.sectionTitle}>{t("Gateway ID")}</Text>
-                <TextInput
-                  accessibilityLabel={t("Gateway ID")}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  autoComplete="off"
-                  editable={!busy}
-                  onChangeText={(value) => {
-                    setGatewayId(value);
-                    clearFeedback();
-                  }}
-                  style={styles.keyInput}
-                  value={gatewayId}
-                />
+                {isCloudflareGateway ? (
+                  <>
+                    <Text style={styles.sectionTitle}>{t("Gateway ID")}</Text>
+                    <TextInput
+                      accessibilityLabel={t("Gateway ID")}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      autoComplete="off"
+                      editable={!busy}
+                      onChangeText={(value) => {
+                        setGatewayId(value);
+                        clearFeedback();
+                      }}
+                      style={styles.keyInput}
+                      value={gatewayId}
+                    />
+                  </>
+                ) : null}
               </>
             ) : null}
             {acceptsKey ? (
