@@ -6193,7 +6193,7 @@ export function createRunExecutor(deps: ExecutorDeps) {
                 argv: ["/usr/local/bin/rakazo-ultrafast", JSON.stringify({ url, goal })],
                 timeoutMs: 180_000,
                 env: {
-                  TEXT_MODEL: process.env.TEXT_MODEL || "inception/mercury-2.5",
+                  TEXT_MODEL: process.env.TEXT_MODEL || "inception/mercury-3",
                   TEXT_MODEL_BASE_URL:
                     process.env.TEXT_MODEL_BASE_URL || "https://openrouter.ai/api/v1",
                   TEXT_MODEL_REASONING: process.env.TEXT_MODEL_REASONING || "none",

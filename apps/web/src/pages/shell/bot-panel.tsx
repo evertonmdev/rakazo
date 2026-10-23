@@ -833,7 +833,7 @@ export function BotSettings({
                   <p className="mt-1 text-xs text-muted-foreground">
                     <Trans>
                       Off keeps the default page browser. On drives the visible computer Chrome with
-                      Jev Ultrafast and Mercury.
+                      Jev Ultrafast and Mercury 3.
                     </Trans>
                   </p>
                 </div>

@@ -4,7 +4,7 @@
 Default Rakazo page tools stay in place. This runner is used only when the
 bot setting "Ativar ultrafast" is on. It attaches to the Chromium already on
 DISPLAY (the computer-use screen), activates that tab, and runs the Jev loop.
-Text fields use Mercury. TypeSafe still chooses the operation and target.
+Text fields use Mercury 3. TypeSafe still chooses the operation and target.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ if not VENDOR.is_dir():
 if VENDOR.is_dir():
     sys.path.insert(0, str(VENDOR))
 
-os.environ.setdefault("TEXT_MODEL", "inception/mercury-2.5")
+os.environ.setdefault("TEXT_MODEL", "inception/mercury-3")
 os.environ.setdefault("TEXT_MODEL_BASE_URL", "https://openrouter.ai/api/v1")
 os.environ.setdefault("TEXT_MODEL_REASONING", "none")
 
@@ -149,7 +149,7 @@ def main() -> int:
             json.dumps(
                 {
                     "ok": False,
-                    "error": "Set TYPESAFE_API_KEY and TEXT_MODEL_API_KEY on the API. Text model defaults to inception/mercury-2.5.",
+                    "error": "Set TYPESAFE_API_KEY and TEXT_MODEL_API_KEY on the API. Text model defaults to inception/mercury-3.",
                 }
             )
         )

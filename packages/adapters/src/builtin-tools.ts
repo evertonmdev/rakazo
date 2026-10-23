@@ -345,7 +345,7 @@ export const builtinAgentTools: ConnectorTool[] = [
   {
     name: "browser_ultrafast",
     description:
-      "Drive the visible computer browser with Jev Ultrafast and Mercury. Use this for every page task when it is offered. Do not use browser_navigate, browser_snapshot, or browser_act. Pass the http(s) URL and the full goal. Actions happen in the Chromium tab already on this bot's screen.",
+      "Drive the visible computer browser with Jev Ultrafast and Mercury 3. Use this for every page task when it is offered. Do not use browser_navigate, browser_snapshot, or browser_act. Pass the http(s) URL and the full goal. Actions happen in the Chromium tab already on this bot's screen.",
     inputSchema: {
       type: "object",
       properties: {
