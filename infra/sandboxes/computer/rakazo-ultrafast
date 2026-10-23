@@ -14,6 +14,7 @@ import importlib.util
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
 VENDOR = Path("/usr/local/lib/rakazo-ultrafast")
@@ -66,6 +67,22 @@ class VisibleBrowser:
         self.call("Page.navigate", url=url)
         self.after_input = None
         self.target = "visible"
+        self._wait_for_document()
+
+    def _wait_for_document(self, timeout_s: float = 15) -> None:
+        """snapshot.js returns null until document.body exists. Jev treats that as navigating."""
+        deadline = time.monotonic() + timeout_s
+        while time.monotonic() < deadline:
+            try:
+                ready = self._eval("document.readyState") == "complete" and self._eval(
+                    "document.body != null"
+                )
+            except Exception:
+                ready = False
+            if ready:
+                return
+            time.sleep(0.05)
+        raise TimeoutError("page did not finish loading")
 
     def _install_cdp(self):
         client = self.client
@@ -83,11 +100,7 @@ class VisibleBrowser:
         return self.client.call(method, params, session_id=self.session)
 
     def evaluate(self, expression):
-        import jev_ultrafast.browser as browser
-
-        return browser.browser_operation(
-            {"operation": "observe", "session": self.session, "screenshot": False}
-        ) and self._eval(expression)
+        return self._eval(expression)
 
     def _eval(self, expression):
         result = self.call("Runtime.evaluate", expression=expression, returnByValue=True)
@@ -100,9 +113,21 @@ class VisibleBrowser:
     def observe(self, screenshot=True):
         import jev_ultrafast.browser as browser
 
-        return browser.browser_operation(
-            {"operation": "observe", "session": self.session, "screenshot": screenshot}
-        )
+        deadline = time.monotonic() + 8
+        last = None
+        while time.monotonic() < deadline:
+            try:
+                return browser.browser_operation(
+                    {"operation": "observe", "session": self.session, "screenshot": screenshot}
+                )
+            except browser.StalePage as exc:
+                last = exc
+                if "navigating" not in str(exc):
+                    raise
+                time.sleep(0.05)
+        if last:
+            raise last
+        raise browser.StalePage("Document is navigating")
 
     def fresh(self, page, action=None):
         from jev_ultrafast.browser import MARKER
