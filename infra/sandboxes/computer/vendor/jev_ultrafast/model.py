@@ -8,6 +8,7 @@ import time
 import httpx
 
 from .questions import NEXT_ACTION, TARGET, TEXT_VALUE
+from .evidence import sanitize
 
 CLIENT = httpx.Client(http2=True, timeout=25)
 
@@ -48,13 +49,14 @@ def validate_choice(answer, ids):
 def action_space(actions):
     """One index per observed element; each operation has its own valid target choices."""
     elements, indices, targets, controls = [], {}, {}, {}
-    operations = {"click": "CLICK", "fill": "TYPE_TEXT", "select": "SELECT"}
+    operations = {"click": "CLICK", "fill": "TYPE_TEXT", "select": "SELECT",
+                  "copy_link": "COPY_LINK", "read_response": "READ_RESPONSE"}
     for action in actions:
         kind = action["kind"]
         if kind not in operations:
             controls[action["id"].upper()] = action
             continue
-        node = action["node"]
+        node = action.get("node", ("response", action.get("request_id")))
         if node not in indices:
             index = str(len(elements) + 1)
             indices[node] = index
@@ -84,6 +86,8 @@ def choose(state, goal, history):
         "CLICK": "Click an element, button, menu option, autocomplete suggestion, or calendar day.",
         "TYPE_TEXT": "Enter or replace text in an editable field. A small LLM will supply the value from the goal.",
         "SELECT": "Select an observed dropdown value.",
+        "COPY_LINK": "Copy an observed HTTP link URL into collected evidence without navigating (not OS clipboard).",
+        "READ_RESPONSE": "Inspect a captured response: only small public unauthenticated GET JSON; sensitive bodies are omitted.",
     }
     operations = {key: labels[key] for key in targets}
     operations.update({key: value["label"] for key, value in controls.items()})
@@ -115,6 +119,8 @@ def choose(state, goal, history):
         },
         "questions": questions,
     }
+    body["state"]["collected_evidence"] = state.get("evidence", [])
+    body = sanitize(body)
     started = time.perf_counter()
     result = post_json("https://api.typesafe.ai/v1/systemone", os.environ["TYPESAFE_API_KEY"], body)
     operation_answer = validate_choice(result["answers"].get("operation", {}), operations)

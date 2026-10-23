@@ -53,6 +53,16 @@ class VisibleBrowser:
         self.client.connect()
         self.session = page.attach_page(self.client)
         self._install_cdp()
+        from jev_ultrafast.evidence import NetworkCapture
+        self.network = NetworkCapture(self.session)
+        original_event = self.client._handle_event
+        def handle_event(message):
+            original_event(message)
+            self.network.event(message)
+        self.client._handle_event = handle_event
+        # Capture must be enabled before the first navigation. Chrome bounds body buffers.
+        self.call("Network.enable", maxTotalBufferSize=1048576,
+                  maxResourceBufferSize=32768, maxPostDataSize=0)
         self._activate_visible_tab()
         self.after_input = None
         self.target = "visible"
@@ -149,9 +159,17 @@ class VisibleBrowser:
         last = None
         while time.monotonic() < deadline:
             try:
-                return browser.browser_operation(
+                info = browser.browser_operation(
                     {"operation": "observe", "session": self.session, "screenshot": screenshot}
                 )
+                info["actions"].append({"id":"inspect_network", "kind":"inspect_network",
+                                        "label":"Inspect captured network request metadata (bounded, sanitized)"})
+                for i, record in enumerate(list(self.network.records.values())[-20:]):
+                    if record.get("finished"):
+                        info["actions"].append({"id":f"response_{i}", "kind":"read_response",
+                            "request_id":record["request_id"],
+                            "label":f"Read safe response JSON: {record.get('status')} {record['url']}"})
+                return info
             except browser.StalePage as exc:
                 last = exc
                 if "navigating" not in str(exc):
@@ -164,7 +182,7 @@ class VisibleBrowser:
     def fresh(self, page, action=None):
         from jev_ultrafast.browser import MARKER
 
-        if action is not None and action["kind"] in {"click", "select"}:
+        if action is not None and action["kind"] in {"click", "select", "copy_link"}:
             node = action["node"]
             current = self._eval(
                 "(() => { const c=window.__jevFast; "
@@ -176,8 +194,19 @@ class VisibleBrowser:
     def act(self, action, page, text=None):
         import jev_ultrafast.browser as browser
 
+        if action not in page["actions"]:
+            raise ValueError("Only observed typed actions are allowed")
         if not self.fresh(page, action):
             raise browser.StalePage("Page changed since this decision. Observe again.")
+        from jev_ultrafast.evidence import READ_KINDS, read_page
+        if action["kind"] in READ_KINDS:
+            if action["kind"] == "inspect_network":
+                self.call("Runtime.evaluate", expression="1", returnByValue=True)
+                return {"kind":"inspect_network", "requests":list(self.network.records.values())[-30:],
+                        "dropped":self.network.dropped, "truncated":len(self.network.records)>30}
+            if action["kind"] == "read_response":
+                return {"kind":"read_response", **self.network.read_body(action["request_id"], self.call)}
+            return read_page(self, action, page)
         result = browser.browser_operation(
             {"operation": "act", "session": self.session, "action": action, "text": text}
         )
@@ -187,6 +216,18 @@ class VisibleBrowser:
     def close(self):
         self.client.close()
         self.target = None
+
+
+def terminal_result(last):
+    from jev_ultrafast.evidence import sanitize, safe_url
+    page = last.get("page") or {}
+    return sanitize({
+        "ok":last.get("status") == "done", "status":last.get("status"),
+        "url":safe_url(page.get("url") or "")[:4000], "title":str(page.get("title") or "")[:1000],
+        "model":os.environ.get("TEXT_MODEL"), "steps":len(last.get("history") or []),
+        "evidence":last.get("evidence", []), "evidence_dropped":last.get("evidence_dropped", 0),
+        "stop_reason":last.get("stop_reason"),
+    })
 
 
 def main() -> int:
@@ -221,22 +262,17 @@ def main() -> int:
             last = agent.command("tick")
             if last.get("status") in {"done", "blocked"}:
                 break
+        if last.get("status") not in {"done", "blocked"}:
+            last.update(status="blocked", stop_reason="40-step runner budget reached")
+    except Exception:
+        # Preserve collected reads on provider/CDP failures without exposing raw exceptions.
+        last = agent.snapshot()
+        last.update(status="blocked", stop_reason="Provider or browser operation failed; partial evidence retained")
     finally:
         browser = agent.state.get("browser")
         if browser:
             browser.close()
-    print(
-        json.dumps(
-            {
-                "ok": last.get("status") == "done",
-                "status": last.get("status"),
-                "url": (last.get("page") or {}).get("url"),
-                "title": (last.get("page") or {}).get("title"),
-                "model": os.environ.get("TEXT_MODEL"),
-                "steps": len(last.get("history") or []),
-            }
-        )
-    )
+    print(json.dumps(terminal_result(last)))
     return 0 if last.get("status") == "done" else 1
 
 

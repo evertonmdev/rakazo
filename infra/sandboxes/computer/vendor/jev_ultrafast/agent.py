@@ -1,12 +1,14 @@
 """The complete agent loop. Typed choices, observable state, bounded execution."""
 
 import base64
+import json
 import time
 from pathlib import Path
 
 from .browser import Browser, StalePage
 from .model import action_space, choose, field_context, field_text
 from .questions import MAX_STEPS
+from .evidence import READ_KINDS, sanitize
 
 
 class Agent:
@@ -30,6 +32,8 @@ class Agent:
             page=page,
             decision=None,
             history=[],
+            evidence=[],
+            evidence_dropped=0,
             status="ready",
             plan=plan,
             plan_index=0,
@@ -74,6 +78,7 @@ class Agent:
                 raise ValueError("This run has stopped. Start a fresh demo.")
             if len(state["decisions"]) >= MAX_STEPS * 2:
                 raise ValueError("Reached the demo's model-call budget")
+            state["page"]["evidence"] = state["evidence"]
             state["decision"] = choose(state["page"], state["goal"], state["history"])
             state["decisions"].append(
                 {
@@ -114,7 +119,14 @@ class Agent:
                     self.pending_text = (context, text, helper)
                     state["text_calls"].append({**helper, "field": action["label"], "value": text})
             # Browser.act checks freshness immediately before input, including after text generation.
-            state["browser"].act(action, page, text=text)
+            result = state["browser"].act(action, page, text=text)
+            if action["kind"] in READ_KINDS:
+                evidence = sanitize(result)
+                if evidence not in state["evidence"]:
+                    state["evidence"].append(evidence)
+                    while len(state["evidence"]) > 20 or len(json.dumps(state["evidence"])) > 48000:
+                        state["evidence"].pop(0)
+                        state["evidence_dropped"] += 1
             self.pending_text = None
             state["elapsed_ms"] = round((time.perf_counter() - state["started_at"]) * 1000)
             # Record execution before observing. A stale post-action observation must not erase the action.
@@ -140,6 +152,7 @@ class Agent:
                 }
             )
             state["page"] = state["browser"].observe(screenshot=self.screenshots)
+            state["page"]["evidence"] = state["evidence"]
             state["elapsed_ms"] = round((time.perf_counter() - state["started_at"]) * 1000)
             state["history"][-1].update(
                 page_changed=state["page"]["fingerprint"] != page["fingerprint"],
@@ -153,7 +166,7 @@ class Agent:
             repeated = state["history"][-3:]
             state["status"] = (
                 "blocked"
-                if len(repeated) == 3 and all(h["page_changed"] is False and h["kind"] != "wait" for h in repeated)
+                if len(repeated) == 3 and all(h["page_changed"] is False and h["kind"] not in READ_KINDS | {"wait"} for h in repeated)
                 else "ready"
             )
         else:

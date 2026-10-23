@@ -86,7 +86,7 @@ class Browser:
         raise StalePage("Page did not settle")
 
     def fresh(self, page, action=None):
-        if action is not None and action["kind"] in {"click", "select"}:
+        if action is not None and action["kind"] in {"click", "select", "copy_link"}:
             node = action["node"]
             if type(node) is not int:
                 return False
@@ -100,6 +100,11 @@ class Browser:
     def act(self, action, page, text=None):
         if not self.fresh(page, action):
             raise StalePage("Page changed since this decision. Observe again.")
+        from .evidence import READ_KINDS, read_page
+        if action["kind"] in READ_KINDS:
+            if action not in page["actions"]:
+                raise ValueError("Only observed typed actions are allowed")
+            return read_page(self, action, page)
         if action["kind"] == "wait":
             time.sleep(0.1)
         result = browser_operation({"operation": "act", "session": self.session, "action": action, "text": text})

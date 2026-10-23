@@ -345,7 +345,7 @@ export const builtinAgentTools: ConnectorTool[] = [
   {
     name: "browser_ultrafast",
     description:
-      "Drive the visible computer browser with Jev Ultrafast and Mercury 3. Use this for every page task when it is offered. Do not use browser_navigate, browser_snapshot, or browser_act. Pass the http(s) URL and the full goal. Actions happen in the Chromium tab already on this bot's screen.",
+      "Drive the visible computer browser with Jev Ultrafast and Mercury 3. Use this for every page task when it is offered. Do not use browser_navigate, browser_snapshot, or browser_act. Pass the http(s) URL and the full goal. Actions happen in the Chromium tab already on this bot's screen. Can collect the current URL, copy observed link URLs without navigating, extract rendered page text, inspect bounded network metadata, and read small public JSON response bodies. Collected evidence is returned, including partial evidence on blocked runs. Credentials and sensitive bodies are withheld. Ask for all needed URLs/content/network evidence in the goal; no shell or browser fallback.",
     inputSchema: {
       type: "object",
       properties: {

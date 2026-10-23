@@ -221,7 +221,6 @@ import {
   browserSnapshotFromTool,
 } from "./browser-tools.js";
 import { agentConnectionTools, builtinAgentTools, sharedMemorySaveError } from "./builtin-tools.js";
-import { loadUltrafastCredentials } from "./ultrafast-credentials.js";
 import { requestUserCall } from "./call-request.js";
 import { archiveSpawnedBot, spawnBot } from "./child-bots.js";
 import type { CloudAgentConnection } from "./cloud-agent-factory.js";
@@ -380,6 +379,8 @@ import {
   tryCompleteConnectionWithCode,
 } from "./run-secret.js";
 import { restoreTurnCheckpoint, unresolvedTurnCheckpointCalls } from "./turn-checkpoint.js";
+import { loadUltrafastCredentials } from "./ultrafast-credentials.js";
+import { ultrafastToolResult } from "./ultrafast-result.js";
 
 export { selectRunConnections } from "./connection-context.js";
 
@@ -6187,7 +6188,6 @@ export function createRunExecutor(deps: ExecutorDeps) {
             const computer = await getRunComputer("tool", name);
             const saved = await loadUltrafastCredentials(deps.prisma, deps.secretStore, run.botId);
             let stdout = "";
-            let stderr = "";
             let code = 1;
             for await (const event of deps.sandbox.execute(
               computer,
@@ -6201,7 +6201,8 @@ export function createRunExecutor(deps: ExecutorDeps) {
                   TEXT_MODEL_REASONING: process.env.TEXT_MODEL_REASONING || "none",
                   ...(saved.typesafeApiKey || process.env.TYPESAFE_API_KEY
                     ? {
-                        TYPESAFE_API_KEY: saved.typesafeApiKey || process.env.TYPESAFE_API_KEY || "",
+                        TYPESAFE_API_KEY:
+                          saved.typesafeApiKey || process.env.TYPESAFE_API_KEY || "",
                       }
                     : {}),
                   ...(saved.textModelApiKey || process.env.TEXT_MODEL_API_KEY
@@ -6217,17 +6218,11 @@ export function createRunExecutor(deps: ExecutorDeps) {
               },
               context,
             )) {
-              if (event.type === "stdout") stdout += event.data;
-              if (event.type === "stderr") stderr += event.data;
+              if (event.type === "stdout") stdout = (stdout + event.data).slice(0, 65_537);
               if (event.type === "exit") code = event.code;
             }
             workspaceCheckpoint.markDirty();
-            return finish({
-              ok: code === 0,
-              stdout: stdout.slice(-4000),
-              stderr: stderr.slice(-1000),
-              code,
-            });
+            return finish(ultrafastToolResult(stdout, code));
           }
           if (PAGE_BROWSER_TOOL_NAMES.has(name)) {
             if (heldForTakeover) {
