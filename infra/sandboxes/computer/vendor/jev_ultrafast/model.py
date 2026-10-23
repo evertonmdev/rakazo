@@ -9,22 +9,35 @@ import httpx
 
 from .questions import NEXT_ACTION, TARGET, TEXT_VALUE
 from .evidence import sanitize
+from .diagnostics import OperationFailure
 
 CLIENT = httpx.Client(http2=True, timeout=25)
+RUN_DEADLINE = None
 
 
 def post_json(url, key, body):
     for attempt in range(3):
+        remaining = 25 if RUN_DEADLINE is None else RUN_DEADLINE - time.monotonic()
+        if remaining <= 0:
+            raise OperationFailure('RUNNER_TIME_BUDGET', 'provider')
         try:
-            response = CLIENT.post(url, json=body, headers={"Authorization": f"Bearer {key}"})
+            response = CLIENT.post(url, json=body, headers={"Authorization": f"Bearer {key}"}, timeout=min(25, remaining))
+        except httpx.TimeoutException:
+            raise OperationFailure('PROVIDER_TIMEOUT', 'provider') from None
         except httpx.HTTPError:
-            raise RuntimeError("Model connection failed; no action executed.") from None
+            raise OperationFailure('PROVIDER_CONNECTION', 'provider') from None
         if response.status_code in {429, 529, 503} and attempt < 2:
             time.sleep(0.5 * 2**attempt)
             continue
         if response.is_error:
-            raise RuntimeError(f"Model provider returned HTTP {response.status_code}; no action executed.")
-        return response.json()
+            raise OperationFailure('PROVIDER_HTTP', 'provider', http_status=response.status_code)
+        try:
+            result = response.json()
+            if not isinstance(result, dict):
+                raise ValueError()
+            return result
+        except (ValueError, TypeError):
+            raise OperationFailure('PROVIDER_INVALID_JSON', 'provider') from None
     raise RuntimeError("Model unavailable")
 
 
@@ -42,7 +55,7 @@ def validate_choice(answer, ids):
     except (KeyError, TypeError, ValueError):
         valid = False
     if not valid:
-        raise ValueError("Invalid TypeSafe response; no action executed.")
+        raise OperationFailure('PROVIDER_INVALID_CHOICE', 'choose')
     return answer
 
 

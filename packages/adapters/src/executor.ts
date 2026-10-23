@@ -380,7 +380,7 @@ import {
 } from "./run-secret.js";
 import { restoreTurnCheckpoint, unresolvedTurnCheckpointCalls } from "./turn-checkpoint.js";
 import { loadUltrafastCredentials } from "./ultrafast-credentials.js";
-import { ultrafastToolResult } from "./ultrafast-result.js";
+import { ULTRAFAST_STDOUT_LIMIT, ultrafastToolResult } from "./ultrafast-result.js";
 
 export { selectRunConnections } from "./connection-context.js";
 
@@ -6218,7 +6218,8 @@ export function createRunExecutor(deps: ExecutorDeps) {
               },
               context,
             )) {
-              if (event.type === "stdout") stdout = (stdout + event.data).slice(0, 65_537);
+              if (event.type === "stdout")
+                stdout = (stdout + event.data).slice(0, ULTRAFAST_STDOUT_LIMIT + 1);
               if (event.type === "exit") code = event.code;
             }
             workspaceCheckpoint.markDirty();

@@ -37,7 +37,37 @@ The runner returns structured `evidence`, `evidence_dropped`, `status`, and `sto
 partial evidence if a later operation/provider fails or a budget is exhausted. The executor preserves
 the bounded JSON object rather than cutting off its first URLs/content with a 4,000-character tail.
 The evidence ledger keeps at most 20 entries / 48,000 serialized characters, dropping oldest entries
-with an explicit counter. The executor rejects output larger than 65,536 characters.
+with an explicit counter. The runner additionally bounds the **serialized** UTF-8 result to 60,000 bytes,
+shortening text structurally before dropping whole evidence entries (and incrementing the counter).
+Complete bounded URLs and sibling records survive excerpt compaction. `output_truncated` marks compaction.
+The executor accepts up to 1 MiB of JSON transport, compacts valid large objects to a 60,000-character
+model-facing budget, and never prefix/tail-slices parsed evidence.
+
+### Safe failure diagnostics
+
+The runner emits exactly one JSON object, including initialization failures. Third-party stdout/stderr
+are suppressed, not returned as evidence. Diagnostics expose only code-owned codes, the failing phase,
+exception class where useful, and HTTP status; never raw provider bodies, headers, keys or tracebacks.
+
+- `OUTPUT_EMPTY`, `OUTPUT_INVALID_JSON`, `OUTPUT_NOT_OBJECT`, `OUTPUT_LIMIT` distinguish transport failures.
+- `PROVIDER_HTTP` includes `http_status` and `choose` (TypeSafe) or `text` (Mercury) phase.
+  HTTP 401/403 names the credential store to configure in `recovery`; 429/5xx requests retry later.
+- `PROVIDER_TIMEOUT`, `PROVIDER_CONNECTION`, `PROVIDER_INVALID_JSON`, `PROVIDER_INVALID_CHOICE`
+  distinguish provider problems without executing an unvalidated action.
+- `BROWSER_CDP_UNAVAILABLE`, `BROWSER_TIMEOUT`, `DEPENDENCY_MISSING` identify startup problems.
+  A cold computer uses the existing `rakazo-browser` visible launcher; a live Chrome is reused.
+- `model_blocked`, `no_progress_after_three_mutations`, `runner_time_budget`, `runner_step_budget`
+  distinguish normal typed-policy stops from `operation_failed` exceptions.
+
+`steps` counts executed actions, **not** model calls. `decisions` and `last_operation` explain zero-action
+stops. A bounded sanitized `observation` preserves the last visible page excerpt even when there were
+no explicit evidence reads. Successful read evidence is retained on later failures. Provider timeouts
+share the runner's deadline so it can return partial results before the sandbox's process timeout.
+
+The default Mercury endpoint is **OpenRouter**, so its field needs an OpenRouter key, not a direct
+Inception API key. An authentication rejection cannot be fixed by retrying or bypassing typed actions;
+update the saved key in the bot's Browser settings (never in chat/logs). Custom endpoint deployments
+must explicitly configure `TEXT_MODEL_BASE_URL` and `TEXT_MODEL` together.
 
 ### Network privacy and limits
 

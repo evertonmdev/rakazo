@@ -63,10 +63,12 @@ class Agent:
             except StalePage:
                 state["decision"] = None
                 state["status"] = "ready"
+                state['phase'] = 'observe'
                 state["page"] = state["browser"].observe(screenshot=self.screenshots)
                 state["elapsed_ms"] = round((time.perf_counter() - state["started_at"]) * 1000)
                 return self.snapshot()
         elif name == "predict":
+            state['phase'] = 'observe'
             if not state["browser"]:
                 raise ValueError("Start a demo first")
             if state["started_at"] is None:
@@ -79,7 +81,9 @@ class Agent:
             if len(state["decisions"]) >= MAX_STEPS * 2:
                 raise ValueError("Reached the demo's model-call budget")
             state["page"]["evidence"] = state["evidence"]
+            state['phase'] = 'choose'
             state["decision"] = choose(state["page"], state["goal"], state["history"])
+
             state["decisions"].append(
                 {
                     **state["decision"],
@@ -89,6 +93,7 @@ class Agent:
             )
             state["status"] = "predicted"
         elif name == "act":
+            state['phase'] = 'act'
             decision, page = state["decision"], state["page"]
             if not decision or body.get("fingerprint") != page["fingerprint"]:
                 raise ValueError("Observe and choose before acting")
@@ -100,6 +105,7 @@ class Agent:
                     state["status"] = "ready"
                     raise StalePage("Page changed since the decision. Choose again.")
                 state["status"] = "done" if selected == "DONE" else "blocked"
+                state['stop_reason'] = 'model_done' if selected == 'DONE' else 'model_blocked'
                 state["plan_index"] = int(selected == "DONE")
                 state["elapsed_ms"] = round((time.perf_counter() - state["started_at"]) * 1000)
                 return self.snapshot()
@@ -115,10 +121,13 @@ class Agent:
                 if self.pending_text and self.pending_text[0] == context:
                     _, text, helper = self.pending_text
                 else:
+                    state['phase'] = 'text'
                     text, helper = field_text(context)
+
                     self.pending_text = (context, text, helper)
                     state["text_calls"].append({**helper, "field": action["label"], "value": text})
             # Browser.act checks freshness immediately before input, including after text generation.
+            state['phase'] = 'act'
             result = state["browser"].act(action, page, text=text)
             if action["kind"] in READ_KINDS:
                 evidence = sanitize(result)
@@ -151,6 +160,7 @@ class Agent:
                     "elapsed_ms": state["elapsed_ms"],
                 }
             )
+            state['phase'] = 'observe'
             state["page"] = state["browser"].observe(screenshot=self.screenshots)
             state["page"]["evidence"] = state["evidence"]
             state["elapsed_ms"] = round((time.perf_counter() - state["started_at"]) * 1000)
@@ -169,6 +179,8 @@ class Agent:
                 if len(repeated) == 3 and all(h["page_changed"] is False and h["kind"] not in READ_KINDS | {"wait"} for h in repeated)
                 else "ready"
             )
+            if state['status'] == 'blocked':
+                state['stop_reason'] = 'no_progress_after_three_mutations'
         else:
             raise ValueError("Unknown command")
         return self.snapshot()

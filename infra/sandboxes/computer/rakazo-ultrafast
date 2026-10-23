@@ -41,6 +41,27 @@ def load_page_browser():
     return module
 
 
+def ensure_visible_cdp(page, port):
+    """Cold computers need the normal visible launcher, never a headless replacement."""
+    try:
+        page.http_get_json(f'http://127.0.0.1:{port}/json/version', timeout=1)
+        return
+    except Exception:
+        pass
+    import subprocess
+    process = subprocess.Popen(['/usr/local/bin/rakazo-browser', 'about:blank'],
+                               stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                               stderr=subprocess.DEVNULL, start_new_session=True)
+    # Reap the launcher if it exits; do not close the user's browser on runner exit.
+    import threading
+    threading.Thread(target=process.wait, daemon=True).start()
+    try:
+        page.wait_for_cdp(port, timeout_s=12)
+    except Exception:
+        from jev_ultrafast.diagnostics import OperationFailure
+        raise OperationFailure('BROWSER_CDP_UNAVAILABLE', 'initialize') from None
+
+
 class VisibleBrowser:
     """Jev browser bound to the tab the user already sees."""
 
@@ -48,7 +69,7 @@ class VisibleBrowser:
         page = load_page_browser()
         self._page = page
         port = page.cdp_port()
-        page.wait_for_cdp(port, timeout_s=8)
+        ensure_visible_cdp(page, port)
         self.client = page.CdpClient(page.discover_ws_url(port))
         self.client.connect()
         self.session = page.attach_page(self.client)
@@ -221,59 +242,132 @@ class VisibleBrowser:
 def terminal_result(last):
     from jev_ultrafast.evidence import sanitize, safe_url
     page = last.get("page") or {}
-    return sanitize({
+    result = sanitize({
         "ok":last.get("status") == "done", "status":last.get("status"),
         "url":safe_url(page.get("url") or "")[:4000], "title":str(page.get("title") or "")[:1000],
         "model":os.environ.get("TEXT_MODEL"), "steps":len(last.get("history") or []),
         "evidence":last.get("evidence", []), "evidence_dropped":last.get("evidence_dropped", 0),
         "stop_reason":last.get("stop_reason"),
+        "decisions":len(last.get("decisions") or []),
+        "last_operation":(last.get("decisions") or [{}])[-1].get("operation"),
+        "observation":{"url":page.get("url", ""), "title":page.get("title", ""),
+                       "text":str(page.get("text") or "")[:6000]},
     })
+    # This code-owned enum is not an OAuth `code` from untrusted page evidence.
+    if 'diagnostic' in last:
+        result['diagnostic'] = last['diagnostic']
+    return result
 
 
-def main() -> int:
-    raw = sys.stdin.read() if not sys.argv[1:] else sys.argv[1]
-    try:
-        args = json.loads(raw or "{}")
-    except json.JSONDecodeError as exc:
-        print(json.dumps({"ok": False, "error": f"invalid json: {exc}"}))
-        return 2
+def encode_result(result):
+    """Bound the serialized wire payload, not a pre-sanitization approximation."""
+    def encode(value):
+        return json.dumps(value, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+    encoded = encode(result)
+    if len(encoded.encode("utf-8")) <= 60000:
+        return encoded
+    def compact(value, limit):
+        if isinstance(value, str):
+            return value[:4000] if value.startswith(("https://", "http://")) else value[:limit]
+        if isinstance(value, dict):
+            return {k:compact(v, limit) for k, v in value.items()}
+        if isinstance(value, list):
+            return [compact(v, limit) for v in value]
+        return value
+    for limit in (6000, 3000, 1500, 750, 300, 100):
+        bounded = compact(result, limit)
+        bounded['output_truncated'] = True
+        encoded = encode(bounded)
+        if len(encoded.encode('utf-8')) <= 60000:
+            return encoded
+    # Keep all URL records until the last resort, then drop whole records explicitly.
+    bounded = compact(result, 100)
+    bounded['output_truncated'] = True
+    while len(encode(bounded).encode('utf-8')) > 60000 and bounded.get('evidence'):
+        bounded['evidence'].pop(0)
+        bounded['evidence_dropped'] = bounded.get('evidence_dropped', 0) + 1
+    return encode(bounded)
+
+
+def run(args):
     url = str(args.get("url") or "").strip()
     goal = str(args.get("goal") or "").strip()
     if not url.startswith(("http://", "https://")) or not goal:
-        print(json.dumps({"ok": False, "error": "url (http/https) and goal are required"}))
-        return 2
+        return {"ok":False, "diagnostic":{"code":"INPUT_INVALID", "phase":"input"},
+                "error":"url (http/https) and goal are required"}, 2
     if not os.environ.get("TYPESAFE_API_KEY") or not os.environ.get("TEXT_MODEL_API_KEY"):
-        print(
-            json.dumps(
-                {
-                    "ok": False,
-                    "error": "Set TYPESAFE_API_KEY and TEXT_MODEL_API_KEY on the API. Text model defaults to inception/mercury-3.",
-                }
-            )
-        )
-        return 2
-    import jev_ultrafast.agent as agent_mod
-
-    agent_mod.Browser = VisibleBrowser
-    agent = agent_mod.Agent(url, goal, screenshots=False)
-    last = agent.snapshot()
+        return {"ok":False, "diagnostic":{"code":"CREDENTIALS_MISSING", "phase":"input"},
+                "error":"Configure TypeSafe and text-model credentials in the bot settings."}, 2
+    agent = None
+    last = {}
+    phase = 'initialize'
     try:
+        import jev_ultrafast.agent as agent_mod
+        agent_mod.Browser = VisibleBrowser
+        agent = agent_mod.Agent(url, goal, screenshots=False)
+        last = agent.snapshot()
+        # Finish before the sandbox's 180s kill so partial evidence can be returned.
+        deadline = time.monotonic() + 135
+        import jev_ultrafast.model as model_mod
+        model_mod.RUN_DEADLINE = deadline
         for _ in range(40):
+            if time.monotonic() >= deadline:
+                last.update(status='blocked', stop_reason='runner_time_budget')
+                break
+            phase = 'tick'
             last = agent.command("tick")
             if last.get("status") in {"done", "blocked"}:
                 break
         if last.get("status") not in {"done", "blocked"}:
-            last.update(status="blocked", stop_reason="40-step runner budget reached")
-    except Exception:
-        # Preserve collected reads on provider/CDP failures without exposing raw exceptions.
-        last = agent.snapshot()
-        last.update(status="blocked", stop_reason="Provider or browser operation failed; partial evidence retained")
+            last.update(status="blocked", stop_reason="runner_step_budget")
+        if last.get('status') == 'blocked' and not last.get('stop_reason'):
+            last['stop_reason'] = 'model_blocked'
+    except Exception as exc:
+        if agent:
+            # Snapshot can itself fail; state already owns the retained evidence.
+            last = dict(agent.state)
+            phase = last.get('phase', phase)
+        try:
+            from jev_ultrafast.diagnostics import diagnostic
+            detail = diagnostic(exc, phase)
+        except ImportError:
+            detail = {'code':'DEPENDENCY_MISSING', 'phase':phase}
+        last.update(status='blocked', stop_reason='operation_failed', diagnostic=detail)
     finally:
-        browser = agent.state.get("browser")
-        if browser:
-            browser.close()
-    print(json.dumps(terminal_result(last)))
-    return 0 if last.get("status") == "done" else 1
+        if 'model_mod' in locals():
+            model_mod.RUN_DEADLINE = None
+        if agent and agent.state.get('browser'):
+            try:
+                agent.state['browser'].close()
+            except Exception:
+                pass  # Cleanup cannot discard the result or leak raw CDP exceptions.
+    try:
+        result = terminal_result(last)
+    except ImportError:
+        result = {'ok':False, 'status':'blocked', 'diagnostic':last.get('diagnostic')}
+    return result, 0 if last.get('status') == 'done' else 1
+
+
+def main() -> int:
+    import contextlib
+    raw = sys.stdin.read() if not sys.argv[1:] else sys.argv[1]
+    try:
+        args = json.loads(raw or "{}")
+        if not isinstance(args, dict):
+            raise ValueError()
+    except ValueError:
+        print(json.dumps({'ok':False, 'diagnostic':{'code':'INPUT_INVALID_JSON', 'phase':'input'}}))
+        return 2
+    # Dependency libraries must not contaminate JSON or leak provider internals to stderr.
+    with open(os.devnull, 'w') as sink, contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):
+        try:
+            result, code = run(args)
+            encoded = encode_result(result)
+        except Exception:
+            code = 1
+            encoded = json.dumps({'ok':False, 'diagnostic':{'code':'OUTPUT_ENCODING_FAILED', 'phase':'output'}})
+    print(encoded)
+    return code
 
 
 if __name__ == "__main__":

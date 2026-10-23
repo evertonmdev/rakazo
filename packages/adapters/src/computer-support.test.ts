@@ -28,6 +28,21 @@ describe("Team Computer bot folders", () => {
     expect(resolveBotWorkspaceCwd("team", "bot-1", share)).toBe(share);
   });
 
+  it("maps the real Linux computer home only once for file tools", () => {
+    expect(resolveBotWorkspacePath("team", "bot-1", "/home/rakazo/bots/bot-1/note.txt")).toBe(
+      "bots/bot-1/note.txt",
+    );
+    expect(resolveBotWorkspacePath("team", "bot-1", "/home/rakazo/shared/note.txt")).toBe(
+      "shared/note.txt",
+    );
+    expect(resolveBotWorkspacePath("team", "bot-1", "/home/rakazo")).toBe("");
+    expect(() => resolveBotWorkspacePath("team", "bot-1", "/home/rakazo/../secret")).toThrow(
+      /escapes/,
+    );
+    expect(() => resolveBotUploadPath("team", "bot-1", "/home/rakazo/bots/bot-2/secret")).toThrow(
+      /escapes/,
+    );
+  });
   it("keeps shared, bot-root, and absolute paths at the Team root", () => {
     expect(resolveBotWorkspacePath("team", "bot-1", "shared/brief.md")).toBe("shared/brief.md");
     expect(resolveBotWorkspacePath("team", "bot-1", "bots/bot-2/result.md")).toBe(

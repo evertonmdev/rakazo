@@ -63,7 +63,14 @@ export function clampRounded(value: number, min: number, max: number): number {
 }
 
 export function normalizeWorkspacePath(value: string): string {
-  const normalized = value.replace(/\\/g, "/").replace(/^\/+/, "");
+  const portable = value.replace(/\\/g, "/");
+  const relative =
+    portable === "/home/rakazo"
+      ? ""
+      : portable.startsWith("/home/rakazo/")
+        ? portable.slice("/home/rakazo/".length)
+        : portable;
+  const normalized = relative.replace(/^\/+/, "");
   const segments = normalized.split("/").filter(Boolean);
   if (segments.some((segment) => segment === "." || segment === "..")) {
     throw new Error("Path escapes the computer workspace");
@@ -156,6 +163,8 @@ function isTeamRootPath(value: string): boolean {
 
 function stripVirtualWorkspaceRoot(value: string): string | null {
   const portable = value.replace(/\\/g, "/");
+  if (portable === "/home/rakazo") return "";
+  if (portable.startsWith("/home/rakazo/")) return portable.slice("/home/rakazo/".length);
   if (portable === "/") return "";
   return portable.startsWith("/") ? portable.slice(1) : null;
 }

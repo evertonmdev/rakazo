@@ -94,6 +94,7 @@ function mapBot(
     fleetManagement?: boolean;
     disabledBuiltinTools?: string[];
     webhookSecretId?: string | null;
+    ultrafastEnabled?: boolean;
     spawnKey?: string | null;
   },
   preview = "",

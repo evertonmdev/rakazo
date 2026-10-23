@@ -20,7 +20,7 @@ class VisibleReadTests(unittest.TestCase):
             def do_GET(self):
                 api = self.path.startswith(('/data', '/private'))
                 content = (b'{"title":"Fixture network result","access_token":"FIXTURE_SECRET"}' if api else
-                    b'<title>Jev fixture</title><h1>Fixture page text</h1><a href="/pin/123?token=FIXTURE_SECRET&q=public">Observed pin</a><script>Promise.all([fetch("/data"),fetch("/private",{headers:{Authorization:"Bearer FIXTURE_SECRET"}})]).then(()=>document.body.dataset.loaded="yes")</script>')
+                    b'<title>Jev fixture</title><h1>Fixture page text</h1><a href="/pin/123?token=FIXTURE_SECRET&q=public">Observed pin</a><script>Promise.all([fetch("/data").then(r=>r.text()),fetch("/private",{headers:{Authorization:"Bearer FIXTURE_SECRET"}}).then(r=>r.text())]).then(()=>document.body.dataset.loaded="yes")</script>')
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/json' if api else 'text/html')
                 self.send_header('Content-Length', str(len(content)))
@@ -37,6 +37,7 @@ class VisibleReadTests(unittest.TestCase):
         sys.path.insert(0, str(ROOT / 'vendor'))
         browser = None
         page_mod = runner.load_page_browser()
+        runner.ensure_visible_cdp(page_mod, page_mod.cdp_port())
         client = page_mod.CdpClient(page_mod.discover_ws_url(page_mod.cdp_port()))
         client.connect()
         session = page_mod.attach_page(client)

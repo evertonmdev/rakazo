@@ -865,7 +865,10 @@ export function BotSettings({
                   }}
                 />
               </div>
-              <label className="mt-4 block text-xs text-muted-foreground" htmlFor={`${ids}-typesafe-key`}>
+              <label
+                className="mt-4 block text-xs text-muted-foreground"
+                htmlFor={`${ids}-typesafe-key`}
+              >
                 TypeSafe API key
                 <Input
                   id={`${ids}-typesafe-key`}
@@ -877,8 +880,11 @@ export function BotSettings({
                   className="mt-1"
                 />
               </label>
-              <label className="mt-3 block text-xs text-muted-foreground" htmlFor={`${ids}-mercury-key`}>
-                Mercury API key
+              <label
+                className="mt-3 block text-xs text-muted-foreground"
+                htmlFor={`${ids}-mercury-key`}
+              >
+                OpenRouter API key (Mercury 3)
                 <Input
                   id={`${ids}-mercury-key`}
                   type="password"
